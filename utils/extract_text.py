@@ -1,12 +1,17 @@
-import pdfplumber
-import docx2txt
+import PyPDF2
+import docx
 
-def extract_pdf(path):
+def extract_text(file):
     text = ""
-    with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() + "\n"
-    return text
 
-def extract_docx(path):
-    return docx2txt.process(path)
+    if file.name.endswith(".pdf"):
+        pdf = PyPDF2.PdfReader(file)
+        for page in pdf.pages:
+            text += page.extract_text() or ""
+
+    elif file.name.endswith(".docx"):
+        doc = docx.Document(file)
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+
+    return text

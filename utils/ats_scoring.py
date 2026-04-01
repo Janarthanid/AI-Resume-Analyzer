@@ -1,4 +1,11 @@
-def ats_score(matched, total):
+def calculate_score(matches):
+    matched = len(matches["matched"])
+    missing = len(matches["missing"])
+
+    total = matched + missing
+
     if total == 0:
         return 0
-    return round((matched / total) * 100, 2)
+
+    score = (matched / total) * 100
+    return int(score)

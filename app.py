@@ -1,43 +1,163 @@
 import streamlit as st
-from utils.extract_text import extract_pdf, extract_docx
-from utils.preprocess import clean_text
-from utils.keyword_matcher import compute_similarity
-from utils.ats_scoring import ats_score
-from utils.summary_generator import rewrite_summary
+import sys, os
+sys.path.append(os.path.abspath("utils"))
 
-st.title("AI Resume Analyzer + ATS Predictor")
+from extract_text import extract_text
+from preprocess import preprocess
+from keyword_matcher import match_keywords
+from ats_scoring import calculate_score
+from summary_generator import generate_summary
+from ai_chatbot import ask_ai
 
-jd_text = st.text_area("Paste Job Description Here")
+# ✅ PDF imports
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+import io
 
-resume_file = st.file_uploader("Upload Resume (PDF or DOCX)", type=["pdf", "docx"])
+st.set_page_config(page_title="AI Resume Analyzer", layout="wide")
 
-if st.button("Analyze Resume"):
-    if resume_file and jd_text:
-        # Extract text
-        if resume_file.name.endswith(".pdf"):
-            resume_text = extract_pdf(resume_file)
-        else:
-            resume_text = extract_docx(resume_file)
+# ---------- UI ----------
+st.markdown("""
+<style>
+.main {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+}
+h1 {text-align:center;}
+</style>
+""", unsafe_allow_html=True)
 
-        # Preprocess
-        jd_clean = clean_text(jd_text)
-        resume_clean = clean_text(resume_text)
+st.title("🚀 AI Resume Analyzer Pro")
 
-        # Similarity Score
-        similarity = compute_similarity(jd_clean, resume_clean)
-        match_percent = round(similarity * 100, 2)
+# ---------- PDF FUNCTION ----------
+def generate_pdf(score, matched, missing, suggestions):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer)
 
-        # ATS Score
-        ats = ats_score(match_percent, 100)
+    styles = getSampleStyleSheet()
+    content = []
 
-        # Dummy Skills
-        skills = ["Python", "Machine Learning", "NLP"]
+    content.append(Paragraph("AI Resume Analysis Report", styles['Title']))
+    content.append(Spacer(1, 12))
 
-        # Summary
-        summary = rewrite_summary(skills)
+    content.append(Paragraph(f"ATS Score: {score}%", styles['Normal']))
+    content.append(Spacer(1, 12))
 
-        st.subheader("📊 Results")
-        st.write("**Resume Match %:**", match_percent)
-        st.write("**ATS Score:**", ats)
-        st.write("**Rewritten Professional Summary:**")
-        st.success(summary)
+    content.append(Paragraph("Matched Skills:", styles['Heading2']))
+    content.append(Paragraph(", ".join(matched), styles['Normal']))
+    content.append(Spacer(1, 12))
+
+    content.append(Paragraph("Missing Skills:", styles['Heading2']))
+    content.append(Paragraph(", ".join(missing), styles['Normal']))
+    content.append(Spacer(1, 12))
+
+    content.append(Paragraph("Suggestions:", styles['Heading2']))
+    for s in suggestions:
+        content.append(Paragraph(f"- {s}", styles['Normal']))
+
+    doc.build(content)
+    buffer.seek(0)
+    return buffer
+
+# ---------- SESSION STORAGE ----------
+if "processed" not in st.session_state:
+    st.session_state.processed = ""
+    st.session_state.jd = ""
+    st.session_state.score = 0
+    st.session_state.matches = {}
+    st.session_state.suggestions = []
+
+# ---------- INPUT ----------
+col1, col2 = st.columns(2)
+
+with col1:
+    jd = st.text_area("📌 Job Description")
+
+with col2:
+    resume = st.file_uploader("📄 Upload Resume", type=["pdf","docx"])
+
+# ---------- ANALYZE ----------
+if st.button("🔍 Analyze Resume"):
+
+    if not resume or not jd:
+        st.error("⚠️ Please upload resume and paste job description")
+    else:
+        text = extract_text(resume)
+        processed = preprocess(text)
+
+        matches = match_keywords(processed, jd)
+        score = calculate_score(matches)
+        suggestions = generate_summary(processed, jd)
+
+        # Store in session
+        st.session_state.processed = processed
+        st.session_state.jd = jd
+        st.session_state.score = score
+        st.session_state.matches = matches
+        st.session_state.suggestions = suggestions
+
+        st.success("✅ Analysis Completed!")
+
+# ---------- DISPLAY RESULTS ----------
+if st.session_state.processed:
+
+    matched = st.session_state.matches.get("matched", [])
+    missing = st.session_state.matches.get("missing", [])
+    score = st.session_state.score
+
+    # Dashboard
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("📊 ATS Score", f"{score}%")
+
+    with col2:
+        st.metric("✅ Matched Skills", len(matched))
+
+    with col3:
+        st.metric("❌ Missing Skills", len(missing))
+
+    st.progress(score/100)
+
+    # Skills
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("✅ Matched Skills")
+        st.write(matched[:10])
+
+    with col2:
+        st.subheader("❌ Missing Skills")
+        st.write(missing[:10])
+
+    # Suggestions
+    st.subheader("🧠 AI Suggestions")
+    for s in st.session_state.suggestions:
+        st.info(s)
+
+    # ---------- CHATBOT ----------
+    st.subheader("🤖 AI Resume Assistant")
+
+    user_q = st.text_input("Ask about your resume")
+
+    if user_q:
+        response = ask_ai(
+            st.session_state.processed,
+            st.session_state.jd,
+            user_q
+        )
+        st.success(response)
+
+    # ---------- PDF DOWNLOAD ----------
+    pdf = generate_pdf(
+        score,
+        matched,
+        missing,
+        st.session_state.suggestions
+    )
+
+    st.download_button(
+        label="📥 Download PDF Report",
+        data=pdf,
+        file_name="resume_report.pdf",
+        mime="application/pdf"
+    )
